@@ -1,0 +1,64 @@
+@import "tailwindcss";
+
+:root {
+  --color-paper: #f4efe8;
+  --color-ink: #1c1c1c;
+  --color-muted: #4e4e4e;
+  --color-line: #e6dfd6;
+  --color-heat-1: #e6e7f6;
+  --color-heat-2: #c5c7f4;
+  --color-heat-3: #6a6eeb;
+  --color-heat-4: #0c0dd7;
+  --font-sans: "Source Sans 3", ui-sans-serif, sans-serif;
+  --font-display: "Instrument Serif", ui-serif, Georgia, serif;
+}
+
+@theme {
+  --color-paper: #f4efe8;
+  --color-ink: #1c1c1c;
+  --color-muted: #4e4e4e;
+  --color-line: #e6dfd6;
+  --font-sans: "Source Sans 3", ui-sans-serif, sans-serif;
+  --font-display: "Instrument Serif", ui-serif, Georgia, serif;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+.font-display {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: -0.015em;
+}
+
+.btn-blue {
+  background: #0c0dd7;
+  color: #ffffff;
+  border-radius: 999px;
+}
+
+.btn-blue:hover {
+  background: #0809a8;
+}
+
+.product-app {
+  background: #f4efe8;
+  color: #1c1c1c;
+}
+
+.heat-cell {
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  background: var(--color-heat-1);
+}
+
+.heat-cell[data-level="1"] { background: var(--color-heat-2); }
+.heat-cell[data-level="2"] { background: var(--color-heat-3); }
+.heat-cell[data-level="3"] { background: var(--color-heat-4); }
+.heat-cell[data-level="4"] { background: #0809a8; }
