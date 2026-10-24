@@ -62,6 +62,17 @@ export function Landing() {
             Today this is headphones and the app. We want a small piece on one ear. Mic, speaker, one button. It connects to the app on your phone. The phone hears the word and sends the answer back. You keep talking.
           </p>
         </section>
+
+        <section className="mt-12 mb-16">
+          <h2 className="font-display text-3xl leading-none">Demo</h2>
+          <video
+            className="mt-6 w-full max-w-xl rounded-2xl bg-black"
+            src="/demo.mp4"
+            controls
+            playsInline
+            preload="metadata"
+          />
+        </section>
       </div>
     </div>
   )
