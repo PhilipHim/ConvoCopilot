@@ -305,7 +305,6 @@ export function PitchDemo() {
   const [learn, setLearn] = useState<LangId>('en')
   const [native, setNative] = useState<LangId>('de')
   const [holding, setHolding] = useState(false)
-  const [heard, setHeard] = useState('')
   const [hit, setHit] = useState<Line | null>(null)
   const [memory, setMemory] = useState<MemoryWord[]>([])
   const [micError, setMicError] = useState('')
@@ -315,18 +314,11 @@ export function PitchDemo() {
   const learnRef = useRef<LangId>('en')
   const nativeRef = useRef<LangId>('de')
   const recRef = useRef<SpeechRec | null>(null)
-  const captureRef = useRef<{
-    ctx: AudioContext
-    stream: MediaStream
-    chunks: Float32Array[]
-    rate: number
-  } | null>(null)
   learnRef.current = learn
   nativeRef.current = native
 
   function clearRound() {
     setHit(null)
-    setHeard('')
   }
 
   function openPane(next: Pane) {
@@ -347,11 +339,16 @@ export function PitchDemo() {
   }
 
   function finish(transcript: string) {
+    const trimmed = transcript.trim()
     const lines = linesFor(learnRef.current, nativeRef.current)
-    const found = matchLine(lines, transcript)
-    setHeard(transcript.trim())
+    const found = matchLine(lines, trimmed)
     setHit(found)
     setHolding(false)
+    if (!trimmed) {
+      setMicError('No word heard. Hold and say it again.')
+      return
+    }
+    setMicError('')
     if (found) {
       setMemory((prev) => {
         const existing = prev.find((item) => item.id === found.id)
@@ -379,7 +376,6 @@ export function PitchDemo() {
           text += `${event.results[i][0]?.transcript ?? ''} `
         }
         heardRef.current = text
-        setHeard(text.trim())
       }
       rec.onend = () => {
         if (holdingRef.current) {
@@ -414,65 +410,34 @@ export function PitchDemo() {
       wantHoldRef.current = false
       return
     }
+    const rec = ensureRecognition()
+    if (!rec) {
+      setMicError('Speech recognition needs Chrome or Safari.')
+      wantHoldRef.current = false
+      return
+    }
+    if (!wantHoldRef.current) return
     setMicError('')
     setHit(null)
-    setHeard('')
     heardRef.current = ''
+    holdingRef.current = true
+    setHolding(true)
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      if (!wantHoldRef.current) {
-        stream.getTracks().forEach((track) => track.stop())
-        return
-      }
-      const ctx = new AudioContext()
-      await ctx.resume()
-      const source = ctx.createMediaStreamSource(stream)
-      const proc = ctx.createScriptProcessor(4096, 1, 1)
-      const gain = ctx.createGain()
-      gain.gain.value = 0
-      const chunks: Float32Array[] = []
-      proc.onaudioprocess = (event) => {
-        chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)))
-      }
-      source.connect(proc)
-      proc.connect(gain)
-      gain.connect(ctx.destination)
-      captureRef.current = { ctx, stream, chunks, rate: ctx.sampleRate }
-      holdingRef.current = true
-      setHolding(true)
+      rec.start()
     } catch {
-      setMicError('Allow the microphone, then hold.')
+      /* already started */
     }
   }
 
-  async function endHold() {
+  function endHold() {
     wantHoldRef.current = false
     if (!holdingRef.current) return
     holdingRef.current = false
     setHolding(false)
-    const capture = captureRef.current
-    captureRef.current = null
-    if (!capture) return
-    capture.stream.getTracks().forEach((track) => track.stop())
-    const length = capture.chunks.reduce((sum, chunk) => sum + chunk.length, 0)
-    const samples = new Float32Array(length)
-    let offset = 0
-    for (const chunk of capture.chunks) {
-      samples.set(chunk, offset)
-      offset += chunk.length
-    }
-    void capture.ctx.close()
-    const wav = encodeWav(samples, capture.rate)
     try {
-      const response = await fetch(`/api/hear?language=${langById(nativeRef.current).id}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'audio/wav' },
-        body: wav,
-      })
-      const payload = (await response.json()) as { text?: string }
-      finish(payload.text || '')
+      recRef.current?.stop()
     } catch {
-      setMicError('Reson8 did not hear that. Hold a little longer.')
+      finish(heardRef.current)
     }
   }
 
@@ -606,26 +571,38 @@ export function PitchDemo() {
             <p className="font-display min-h-[4.5rem] text-center text-5xl leading-none tracking-tight sm:text-6xl">
               {hit ? hit.answer : holding ? 'Listening' : 'Your word'}
             </p>
-            <GlassButton
-              aria-pressed={holding}
-              onPointerDown={() => {
-                void startHold()
-              }}
-              onPointerUp={() => {
-                void endHold()
-              }}
-              onPointerCancel={() => {
-                void endHold()
-              }}
-            >
-              <Mic className="h-8 w-8" aria-hidden />
-              <span className="sr-only">{holding ? 'Release to stop' : 'Hold to speak'}</span>
-            </GlassButton>
+            <div className="relative flex h-36 w-36 items-center justify-center">
+              {holding ? (
+                <>
+                  <span
+                    className="pointer-events-none absolute inset-0 rounded-full border-2 border-[#0c0dd7]/40 animate-ping"
+                    aria-hidden
+                  />
+                  <span
+                    className="pointer-events-none absolute inset-3 rounded-full border border-[#0c0dd7]/50 animate-pulse"
+                    aria-hidden
+                  />
+                </>
+              ) : null}
+              <GlassButton
+                aria-pressed={holding}
+                className={holding ? 'scale-105' : ''}
+                onPointerDown={() => {
+                  void startHold()
+                }}
+                onPointerUp={() => {
+                  endHold()
+                }}
+                onPointerCancel={() => {
+                  endHold()
+                }}
+              >
+                <Mic className="h-8 w-8" aria-hidden />
+                <span className="sr-only">{holding ? 'Release to stop' : 'Hold to speak'}</span>
+              </GlassButton>
+            </div>
             <p className="max-w-xs text-center text-sm text-muted">
-              {micError ||
-                (heard
-                  ? `Heard: ${heard}`
-                  : 'Tap once to allow the mic. Then hold, or hold the space bar.')}
+              {micError || 'Tap once to allow the mic. Then hold, or hold the space bar.'}
             </p>
           </div>
         </div>

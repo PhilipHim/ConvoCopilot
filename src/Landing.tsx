@@ -42,7 +42,7 @@ export function Landing() {
           <h2 className="font-display text-3xl leading-none">What we used</h2>
           <ul className="mt-6 space-y-4 text-lg">
             <li>
-              <span className="font-medium">Reson8.</span> Hears the whisper. This part is live.
+              <span className="font-medium">Browser speech.</span> Hold the mic, say the word. It comes back translated.
             </li>
             <li>
               <span className="font-medium">Claude.</span> Chooses the word, as a backend call. On this demo the list is fixed, so a bad connection does not kill the moment.
