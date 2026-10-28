@@ -269,37 +269,6 @@ async function primeMic() {
   micPrimed = true
 }
 
-function encodeWav(samples: Float32Array, sampleRate: number) {
-  const targetRate = 16000
-  const length = Math.max(1, Math.floor((samples.length * targetRate) / sampleRate))
-  const pcm = new Int16Array(length)
-  for (let i = 0; i < length; i++) {
-    const index = Math.min(samples.length - 1, Math.floor((i * sampleRate) / targetRate))
-    const sample = Math.max(-1, Math.min(1, samples[index] || 0))
-    pcm[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff
-  }
-  const buffer = new ArrayBuffer(44 + pcm.length * 2)
-  const view = new DataView(buffer)
-  const write = (offset: number, text: string) => {
-    for (let i = 0; i < text.length; i++) view.setUint8(offset + i, text.charCodeAt(i))
-  }
-  write(0, 'RIFF')
-  view.setUint32(4, 36 + pcm.length * 2, true)
-  write(8, 'WAVE')
-  write(12, 'fmt ')
-  view.setUint32(16, 16, true)
-  view.setUint16(20, 1, true)
-  view.setUint16(22, 1, true)
-  view.setUint32(24, targetRate, true)
-  view.setUint32(28, targetRate * 2, true)
-  view.setUint16(32, 2, true)
-  view.setUint16(34, 16, true)
-  write(36, 'data')
-  view.setUint32(40, pcm.length * 2, true)
-  for (let i = 0; i < pcm.length; i++) view.setInt16(44 + i * 2, pcm[i], true)
-  return new Blob([buffer], { type: 'audio/wav' })
-}
-
 export function PitchDemo() {
   const [pane, setPane] = useState<Pane>('demo')
   const [learn, setLearn] = useState<LangId>('en')
@@ -723,19 +692,83 @@ function ContextPane() {
   const [setIndex, setSetIndex] = useState(0)
   const [phase, setPhase] = useState<'say' | 'wait' | 'words'>('say')
   const [holding, setHolding] = useState(false)
-  const [heard, setHeard] = useState('')
   const [picked, setPicked] = useState<string | null>(null)
   const [miss, setMiss] = useState('')
   const holdingRef = useRef(false)
   const wantHoldRef = useRef(false)
-  const captureRef = useRef<{
-    ctx: AudioContext
-    stream: MediaStream
-    chunks: Float32Array[]
-    rate: number
-  } | null>(null)
+  const heardRef = useRef('')
+  const phaseRef = useRef(phase)
+  const sceneRef = useRef(CONTEXT_SCENES[0])
+  const wordsRef = useRef(CONTEXT_SCENES[0].sets[0])
+  const recRef = useRef<SpeechRec | null>(null)
   const scene = CONTEXT_SCENES[sceneIndex]
   const words = scene.sets[setIndex] ?? scene.sets[0]
+  phaseRef.current = phase
+  sceneRef.current = scene
+  wordsRef.current = words
+
+  function applyTranscript(transcript: string) {
+    const text = transcript.trim()
+    const heardFold = fold(text)
+    if (!text) {
+      setMiss('No word heard. Hold and say it again.')
+      return
+    }
+    setMiss('')
+
+    if (phaseRef.current === 'words') {
+      const hit = wordsRef.current.find((word) => heardFold.includes(fold(word)))
+      if (hit) {
+        setPicked(hit)
+        speakIn(hit, 'en-US')
+      } else {
+        setMiss('Say one of the three words, then let go.')
+      }
+      return
+    }
+
+    const matched = sceneRef.current.keys.some((key) => heardFold.includes(fold(key)))
+    if (!matched) {
+      setMiss('Say the start of the sentence, then let go.')
+      return
+    }
+    setPhase('wait')
+    window.setTimeout(() => setPhase('words'), 1000)
+  }
+
+  function ensureRecognition() {
+    const Ctor = recognitionCtor()
+    if (!Ctor) return null
+    if (!recRef.current) {
+      const rec = new Ctor()
+      rec.interimResults = true
+      rec.continuous = true
+      rec.lang = 'en-US'
+      rec.onresult = (event) => {
+        let text = ''
+        for (let i = 0; i < event.results.length; i++) {
+          text += `${event.results[i][0]?.transcript ?? ''} `
+        }
+        heardRef.current = text
+      }
+      rec.onend = () => {
+        if (holdingRef.current) {
+          try {
+            rec.start()
+          } catch {
+            /* Chrome throws if start overlaps stop. */
+          }
+          return
+        }
+        applyTranscript(heardRef.current)
+      }
+      rec.onerror = () => {
+        if (!holdingRef.current) applyTranscript(heardRef.current)
+      }
+      recRef.current = rec
+    }
+    return recRef.current
+  }
 
   async function startListen() {
     if (holdingRef.current) return
@@ -750,88 +783,50 @@ function ContextPane() {
       wantHoldRef.current = false
       return
     }
-    setMiss('')
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-    if (!wantHoldRef.current) {
-      stream.getTracks().forEach((track) => track.stop())
+    const rec = ensureRecognition()
+    if (!rec) {
+      setMiss('Speech recognition needs Chrome or Safari.')
+      wantHoldRef.current = false
       return
     }
-    const ctx = new AudioContext()
-    await ctx.resume()
-    const source = ctx.createMediaStreamSource(stream)
-    const proc = ctx.createScriptProcessor(4096, 1, 1)
-    const gain = ctx.createGain()
-    gain.gain.value = 0
-    const chunks: Float32Array[] = []
-    proc.onaudioprocess = (event) => {
-      chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)))
-    }
-    source.connect(proc)
-    proc.connect(gain)
-    gain.connect(ctx.destination)
-    captureRef.current = { ctx, stream, chunks, rate: ctx.sampleRate }
+    if (!wantHoldRef.current) return
+    setMiss('')
+    heardRef.current = ''
     holdingRef.current = true
     setHolding(true)
+    try {
+      rec.start()
+    } catch {
+      /* already started */
+    }
   }
 
-  async function stopListen() {
+  function stopListen() {
     wantHoldRef.current = false
     if (!holdingRef.current) return
     holdingRef.current = false
     setHolding(false)
-    const capture = captureRef.current
-    captureRef.current = null
-    if (!capture) return
-    capture.stream.getTracks().forEach((track) => track.stop())
-    const length = capture.chunks.reduce((sum, chunk) => sum + chunk.length, 0)
-    const samples = new Float32Array(length)
-    let offset = 0
-    for (const chunk of capture.chunks) {
-      samples.set(chunk, offset)
-      offset += chunk.length
+    try {
+      recRef.current?.stop()
+    } catch {
+      applyTranscript(heardRef.current)
     }
-    void capture.ctx.close()
-    const wav = encodeWav(samples, capture.rate)
-    const response = await fetch('/api/hear?language=en', {
-      method: 'POST',
-      headers: { 'Content-Type': 'audio/wav' },
-      body: wav,
-    })
-    const payload = (await response.json()) as { text?: string }
-    const text = (payload.text || '').trim()
-    setHeard(text)
-    const heardFold = fold(text)
-
-    if (phase === 'words') {
-      const hit = words.find((word) => heardFold.includes(fold(word)))
-      if (hit) {
-        setPicked(hit)
-        speakIn(hit, 'en-US')
-      }
-      return
-    }
-
-    const matched = scene.keys.some((key) => heardFold.includes(fold(key)))
-    if (!matched) {
-      setMiss('Say the start of the sentence, then let go.')
-      return
-    }
-    setPhase('wait')
-    window.setTimeout(() => setPhase('words'), 1000)
   }
+
+  useEffect(() => {
+    return () => {
+      holdingRef.current = false
+      try {
+        recRef.current?.stop()
+      } catch {
+        /* already stopped */
+      }
+    }
+  }, [])
 
   function nextSet() {
     setPicked(null)
     setSetIndex((n) => (n + 1) % scene.sets.length)
-  }
-
-  function nextScene() {
-    setSceneIndex((n) => (n + 1) % CONTEXT_SCENES.length)
-    setSetIndex(0)
-    setPhase('say')
-    setPicked(null)
-    setHeard('')
-    setMiss('')
   }
 
   return (
@@ -850,7 +845,6 @@ function ContextPane() {
                   setSetIndex(0)
                   setPhase('say')
                   setPicked(null)
-                  setHeard('')
                   setMiss('')
                 }}
                 className={`w-full rounded-2xl border px-4 py-3 text-left text-base leading-relaxed ${
@@ -878,23 +872,38 @@ function ContextPane() {
               ))}
             </div>
           ) : null}
-          <GlassButton
-            aria-pressed={holding}
-            onPointerDown={() => {
-              void startListen()
-            }}
-            onPointerUp={() => {
-              void stopListen()
-            }}
-            onPointerCancel={() => {
-              void stopListen()
-            }}
-          >
-            <Mic className="h-8 w-8" aria-hidden />
-            <span className="sr-only">{holding ? 'Release to stop' : 'Hold to speak'}</span>
-          </GlassButton>
+          <div className="relative flex h-36 w-36 items-center justify-center">
+            {holding ? (
+              <>
+                <span
+                  className="pointer-events-none absolute inset-0 rounded-full border-2 border-[#0c0dd7]/40 animate-ping"
+                  aria-hidden
+                />
+                <span
+                  className="pointer-events-none absolute inset-3 rounded-full border border-[#0c0dd7]/50 animate-pulse"
+                  aria-hidden
+                />
+              </>
+            ) : null}
+            <GlassButton
+              aria-pressed={holding}
+              className={holding ? 'scale-105' : ''}
+              onPointerDown={() => {
+                void startListen()
+              }}
+              onPointerUp={() => {
+                stopListen()
+              }}
+              onPointerCancel={() => {
+                stopListen()
+              }}
+            >
+              <Mic className="h-8 w-8" aria-hidden />
+              <span className="sr-only">{holding ? 'Release to stop' : 'Hold to speak'}</span>
+            </GlassButton>
+          </div>
           <p className="max-w-xs text-center text-sm text-muted">
-            {miss || (heard ? `Heard: ${heard}` : 'Tap once to allow the mic. Then hold.')}
+            {miss || 'Tap once to allow the mic. Then hold.'}
           </p>
           <div className="flex flex-wrap justify-center gap-3">
             {picked ? (
