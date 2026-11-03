@@ -27,7 +27,6 @@ export function Landing() {
         >
           Try it
         </Link>
-        <PayButton />
 
         <section className="mt-16">
           <h2 className="font-display text-3xl leading-none">In the moment</h2>
@@ -36,24 +35,6 @@ export function Landing() {
             <li>Or you say the missing word in your own language. It comes back translated.</li>
             <li>You say it yourself.</li>
           </ol>
-        </section>
-
-        <section className="mt-12">
-          <h2 className="font-display text-3xl leading-none">What we used</h2>
-          <ul className="mt-6 space-y-4 text-lg">
-            <li>
-              <span className="font-medium">Browser speech.</span> Hold the mic, say the word. It comes back translated.
-            </li>
-            <li>
-              <span className="font-medium">Claude.</span> Chooses the word, as a backend call. On this demo the list is fixed, so a bad connection does not kill the moment.
-            </li>
-            <li>
-              <span className="font-medium">Stripe.</span> Founding Member, €4.99 a month. One checkout. Not per minute, not per word.
-            </li>
-            <li>
-              <span className="font-medium">Supabase.</span> Later. The words and the level, saved.
-            </li>
-          </ul>
         </section>
 
         <section className="mt-12 mb-10">
@@ -75,24 +56,5 @@ export function Landing() {
         </section>
       </div>
     </div>
-  )
-}
-
-function PayButton() {
-  const url =
-    (import.meta.env.VITE_STRIPE_PAYMENT_LINK_URL as string | undefined) ||
-    'https://buy.stripe.com/fZu00k94eaLK5wv0tg7Zu00'
-  if (!url) {
-    return (
-      <p className="mt-4 text-sm text-[#5b6572]">Founding Member, €4.99 / month.</p>
-    )
-  }
-  return (
-    <a
-      href={url}
-      className="mt-4 inline-flex w-fit rounded-full bg-[#d01212] px-5 py-3 text-sm font-medium text-white"
-    >
-      Founding Member, €4.99 / month
-    </a>
   )
 }
